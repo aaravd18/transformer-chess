@@ -35,7 +35,7 @@ import time
 from pathlib import Path
 import shutil
 
-from tokenizer import *
+from data.tokenizer import *
 
 
 
