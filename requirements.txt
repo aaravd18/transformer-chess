@@ -1,0 +1,6 @@
+numpy
+torch
+python-chess
+requests
+zstandard
+wandb
