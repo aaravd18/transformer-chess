@@ -248,7 +248,7 @@ def play_game(
     model: torch.nn.Module,
     device: torch.device,
     human_color: chess.Color = chess.WHITE,
-    temperature: float = 0.5,
+    temperature: float = 1,
     show_suggestions_each_turn: bool = False,
     board_size: int = 400,
 ) -> chess.Board:
