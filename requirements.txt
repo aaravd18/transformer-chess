@@ -4,3 +4,4 @@ python-chess
 requests
 zstandard
 wandb
+matplotlib
