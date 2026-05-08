@@ -511,4 +511,5 @@ def plot_single_head_attention(
             )
             print(f"saved -> {save_path}")
 
+        plt.close(fig)
         return fig
