@@ -557,12 +557,9 @@ def show_multi_square_attention(
 ) -> None:
     """Plot attention for a set of (square, layer) pairs.
 
-    Each row of the output is one square at its specified layer; each
-    of the 8 columns is one head. Non-board tokens are excluded so the
-    plotted vector is the (64,) board-only slice, renormalized? No --
-    we display it on its own scale without renormalizing, matching the
-    behavior of `plot_attention_map`. If you want renormalization, do
-    it before calling.
+    Each column of the output is one square at its specified layer; each
+    of the 8 rows is one head. Non-board tokens are excluded so the
+    plotted vector is the (64,) board-only slice (not renormalized).
 
     Args:
         model: a ChessTransformer in eval mode.
@@ -583,7 +580,6 @@ def show_multi_square_attention(
     model = model.to(device).eval()
     tokens = torch.from_numpy(tokenize(board)).long().unsqueeze(0).to(device)
 
-    # Run the model once with hooks on every layer we'll need.
     needed_layers = sorted(set(square_to_layer.values()))
     attn_modules = [model.blocks[i].attn for i in needed_layers]
     for m in attn_modules:
@@ -595,7 +591,6 @@ def show_multi_square_attention(
         for m in attn_modules:
             m._save_attn_probs = False
 
-    # Cache attention tensors per layer to avoid re-fetching.
     layer_probs = {
         i: model.blocks[i].attn.last_attn_probs[0].cpu().numpy()
         for i in needed_layers
@@ -603,48 +598,51 @@ def show_multi_square_attention(
 
     n_heads = model.cfg.n_heads
     items = list(square_to_layer.items())
-    n_rows = len(items)
+    n_cols = len(items)
 
     fig, axes = plt.subplots(
-        n_rows, n_heads,
-        figsize=(2.6 * n_heads, 2.8 * n_rows),
+        n_heads, n_cols,
+        figsize=(3.6 * n_cols, 3.6 * n_heads),
         squeeze=False,
     )
     fig.suptitle(
         f"Attention {direction} target squares "
         f"(turn: {'white' if board.turn else 'black'})",
-        fontsize=12,
+        fontsize=13,
     )
 
-    # Permutation that maps canonical-frame board indices back to the
-    # user's frame for black-to-move positions.
     unmirror = [sq ^ 56 for sq in range(64)] if board.turn == chess.BLACK \
                else list(range(64))
 
-    for row, (square, layer_idx) in enumerate(items):
+    # Column headers: one per square, on the top row only.
+    for col, (square, layer_idx) in enumerate(items):
+        sq_name = chess.square_name(square)
+        axes[0, col].set_title(
+            f"{sq_name}  (L{layer_idx})", fontsize=12, pad=10,
+        )
+
+    # Row headers: head index, on the leftmost column only.
+    for head in range(n_heads):
+        axes[head, 0].set_ylabel(
+            f"H{head}", fontsize=12, rotation=0,
+            ha="right", va="center", labelpad=20,
+        )
+
+    for col, (square, layer_idx) in enumerate(items):
         canon_sq = square ^ 56 if board.turn == chess.BLACK else square
         probs = layer_probs[layer_idx]   # (H, 68, 68)
-        sq_name = chess.square_name(square)
-
-        # Row label on the leftmost axis.
-        axes[row, 0].set_ylabel(
-            f"{sq_name}  (L{layer_idx})",
-            fontsize=11, rotation=0, ha="right", va="center", labelpad=30,
-        )
 
         for head in range(n_heads):
             if direction == "from":
-                vec = probs[head, canon_sq, :64]   # query=square
+                vec = probs[head, canon_sq, :64]
             else:
-                vec = probs[head, :64, canon_sq]   # key=square
-            # Un-mirror to the user's board frame for display.
+                vec = probs[head, :64, canon_sq]
             vec = vec[unmirror]
 
-            title = f"H{head}" if row == 0 else ""
             _plot_board_attention(
                 vec, board, square,
-                ax=axes[row, head],
-                title=title,
+                ax=axes[head, col],
+                title="",        # titles handled by column headers above
                 cmap=cmap,
             )
 
