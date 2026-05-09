@@ -660,4 +660,3 @@ def show_multi_square_attention(
             fig.savefig(save_path, dpi=dpi)
 
     plt.show()
-    return fig
