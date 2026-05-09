@@ -528,7 +528,7 @@ def _plot_board_attention(
             ax.text(
                 file, rank, glyph,
                 ha="center", va="center",
-                fontsize=18, color=fill_color,
+                fontsize=22, color=fill_color,
                 path_effects=[pe.withStroke(linewidth=2.2,
                                             foreground=stroke_color)],
             )
