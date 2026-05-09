@@ -499,11 +499,10 @@ def _plot_board_attention(
     title: str = "",
     cmap: str = "viridis",
     show_pieces: bool = True,
-) -> plt.Axes:
+) -> tuple[plt.Axes, "matplotlib.image.AxesImage"]:
     """Like plot_attention_map but board-only (no meta sidebar).
 
-    Expects `square_attn` to already be in the user's board frame
-    (i.e. un-mirrored if the board was black-to-move) and length 64.
+    Returns (ax, im) so the caller can attach a colorbar.
     """
     assert square_attn.shape == (64,), \
         f"expected (64,), got {square_attn.shape}"
@@ -511,7 +510,8 @@ def _plot_board_attention(
     grid = square_attn.reshape(8, 8)
     vmax = float(square_attn.max()) if square_attn.max() > 0 else 1.0
     im = ax.imshow(grid, cmap=cmap, vmin=0.0, vmax=vmax,
-                   extent=(-0.5, 7.5, -0.5, 7.5), origin="lower")
+                   extent=(-0.5, 7.5, -0.5, 7.5), origin="lower",
+                   interpolation="nearest")
 
     if show_pieces:
         for sq in range(64):
@@ -528,48 +528,57 @@ def _plot_board_attention(
             ax.text(
                 file, rank, glyph,
                 ha="center", va="center",
-                fontsize=16, color=fill_color,
-                path_effects=[pe.withStroke(linewidth=2,
+                fontsize=18, color=fill_color,
+                path_effects=[pe.withStroke(linewidth=2.2,
                                             foreground=stroke_color)],
             )
 
     f = chess.square_file(focus_square)
     r = chess.square_rank(focus_square)
     ax.add_patch(Rectangle((f - 0.5, r - 0.5), 1, 1,
-                           fill=False, edgecolor="red", linewidth=2.0))
+                           fill=False, edgecolor="red", linewidth=2.2))
 
     ax.set_xticks(range(8))
-    ax.set_xticklabels(list("abcdefgh"), fontsize=7)
+    ax.set_xticklabels(list("abcdefgh"), fontsize=9)
     ax.set_yticks(range(8))
-    ax.set_yticklabels(range(1, 9), fontsize=7)
-    ax.set_title(title, fontsize=10)
+    ax.set_yticklabels(range(1, 9), fontsize=9)
+    ax.tick_params(length=0)        # hide tick marks; labels alone are enough
+    for spine in ax.spines.values():
+        spine.set_linewidth(0.8)
+    ax.set_title(title, fontsize=11)
     ax.set_aspect("equal")
-    return ax
+    return ax, im
 
 
 def show_multi_square_attention(
     model,                                # ChessTransformer
     board: chess.Board,
     square_to_layer: dict[int, int],
-    direction: str = "from",              # "from" or "to"
+    direction: str = "from",
     device: str | torch.device = "cpu",
     cmap: str = "viridis",
-) -> None:
+    save_path: str | Path | None = None,
+    dpi: int = 300,
+) -> plt.Figure:
     """Plot attention for a set of (square, layer) pairs.
 
-    Each column of the output is one square at its specified layer; each
-    of the 8 rows is one head. Non-board tokens are excluded so the
-    plotted vector is the (64,) board-only slice (not renormalized).
+    Columns are squares, rows are heads. Non-board tokens are excluded.
+    Each subplot has its own colorbar (each plot has its own scale).
 
     Args:
-        model: a ChessTransformer in eval mode.
+        model: ChessTransformer in eval mode.
         board: position to analyze; not mutated.
-        square_to_layer: {square_index: layer_index}. Square indices are
-            in the user's board frame (0..63).
-        direction: "from" = row of A (square is the query),
-                   "to"   = column of A (square is the key).
+        square_to_layer: {square_index: layer_index} in the user's frame.
+        direction: "from" (square is query) or "to" (square is key).
         device: where to run the model.
         cmap: matplotlib colormap.
+        save_path: if given, save the figure here. Use a .pdf or .svg
+            extension for vector output (sharp at any zoom).
+        dpi: rasterization DPI; only matters for raster formats (.png).
+            Vector formats ignore this for the plot itself but still
+            use it for any embedded raster elements.
+
+    Returns the Figure so the caller can further tweak/save it.
     """
     assert direction in ("from", "to")
     for sq, layer in square_to_layer.items():
@@ -600,51 +609,70 @@ def show_multi_square_attention(
     items = list(square_to_layer.items())
     n_cols = len(items)
 
-    fig, axes = plt.subplots(
-        n_heads, n_cols,
-        figsize=(3.6 * n_cols, 3.6 * n_heads),
-        squeeze=False,
-    )
-    fig.suptitle(
-        f"Attention {direction} target squares "
-        f"(turn: {'white' if board.turn else 'black'})",
-        fontsize=13,
-    )
-
-    unmirror = [sq ^ 56 for sq in range(64)] if board.turn == chess.BLACK \
-               else list(range(64))
-
-    # Column headers: one per square, on the top row only.
-    for col, (square, layer_idx) in enumerate(items):
-        sq_name = chess.square_name(square)
-        axes[0, col].set_title(
-            f"{sq_name}  (L{layer_idx})", fontsize=12, pad=10,
+    # Publication-friendly defaults. Use a serif font that's commonly
+    # available; falls back gracefully if not installed.
+    with plt.rc_context({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "DejaVu Serif", "serif"],
+        "mathtext.fontset": "stix",
+        "axes.titlesize": 11,
+        "axes.labelsize": 11,
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.05,
+        "pdf.fonttype": 42,         # embed TrueType (editable in Illustrator)
+        "ps.fonttype": 42,
+    }):
+        fig, axes = plt.subplots(
+            n_heads, n_cols,
+            figsize=(4.0 * n_cols, 4.0 * n_heads),
+            squeeze=False,
+            dpi=dpi,
+        )
+        fig.suptitle(
+            f"Attention {direction} target squares "
+            f"(turn: {'white' if board.turn else 'black'})",
+            fontsize=14,
         )
 
-    # Row headers: head index, on the leftmost column only.
-    for head in range(n_heads):
-        axes[head, 0].set_ylabel(
-            f"H{head}", fontsize=12, rotation=0,
-            ha="right", va="center", labelpad=20,
-        )
+        unmirror = [sq ^ 56 for sq in range(64)] if board.turn == chess.BLACK \
+                   else list(range(64))
 
-    for col, (square, layer_idx) in enumerate(items):
-        canon_sq = square ^ 56 if board.turn == chess.BLACK else square
-        probs = layer_probs[layer_idx]   # (H, 68, 68)
-
-        for head in range(n_heads):
-            if direction == "from":
-                vec = probs[head, canon_sq, :64]
-            else:
-                vec = probs[head, :64, canon_sq]
-            vec = vec[unmirror]
-
-            _plot_board_attention(
-                vec, board, square,
-                ax=axes[head, col],
-                title="",        # titles handled by column headers above
-                cmap=cmap,
+        for col, (square, layer_idx) in enumerate(items):
+            sq_name = chess.square_name(square)
+            axes[0, col].set_title(
+                f"{sq_name}  (L{layer_idx})", fontsize=13, pad=10,
             )
 
-    plt.tight_layout(rect=(0, 0, 1, 0.96))
+        for head in range(n_heads):
+            axes[head, 0].set_ylabel(
+                f"H{head}", fontsize=13, rotation=0,
+                ha="right", va="center", labelpad=22,
+            )
+
+        for col, (square, layer_idx) in enumerate(items):
+            canon_sq = square ^ 56 if board.turn == chess.BLACK else square
+            probs = layer_probs[layer_idx]
+
+            for head in range(n_heads):
+                if direction == "from":
+                    vec = probs[head, canon_sq, :64]
+                else:
+                    vec = probs[head, :64, canon_sq]
+                vec = vec[unmirror]
+
+                ax = axes[head, col]
+                _, im = _plot_board_attention(
+                    vec, board, square,
+                    ax=ax, title="", cmap=cmap,
+                )
+                cbar = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.03)
+                cbar.ax.tick_params(labelsize=8, length=2, width=0.6)
+                cbar.outline.set_linewidth(0.6)
+
+        plt.tight_layout(rect=(0, 0, 1, 0.97))
+
+        if save_path is not None:
+            fig.savefig(save_path, dpi=dpi)
+
     plt.show()
+    return fig
