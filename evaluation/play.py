@@ -140,10 +140,9 @@ def predict_move(
     model: torch.nn.Module,
     board: chess.Board,
     device: torch.device,
-    temperature: float = 1.0,
 ) -> chess.Move:
     """Return the model's single best legal move."""
-    moves = get_legal_move_probs(model, board, device, temperature)
+    moves = get_legal_move_probs(model, board, device)
     if not moves:
         raise ValueError("No legal moves -- is the position terminal?")
     return moves[0][0]
@@ -248,7 +247,7 @@ def play_game(
     model: torch.nn.Module,
     device: torch.device,
     human_color: chess.Color = chess.WHITE,
-    temperature: float = 1,
+    temperature: float = 0.3,
     show_suggestions_each_turn: bool = False,
     board_size: int = 400,
 ) -> chess.Board:
@@ -359,7 +358,7 @@ def play_game(
 
 if __name__ == "__main__":
     # Load a checkpoint and show predictions on a few positions.
-    ckpt_path = "checkpoints/3-million-positions-5M.pt"
+    ckpt_path = "checkpoints/5M-longer-run.pt"
 
     if torch.cuda.is_available():
         device = torch.device("cuda")

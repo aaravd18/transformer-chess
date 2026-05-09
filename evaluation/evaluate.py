@@ -10,7 +10,7 @@ from data.dataloader import make_loader
 # ---------------------------------------------------------------------------
 # EDIT FOR COLAB
 # ---------------------------------------------------------------------------
-CKPT_PATH      = "checkpoints/3-million-positions-5M.pt"
+CKPT_PATH      = "checkpoints/5M-longer-run.pt"
 DATA_DIR       = "datasets/"
 N_PREDICT      = 20000             # how many positions to run the model on
 STOCKFISH_PATH = None               # e.g. "/usr/games/stockfish"; None to skip
