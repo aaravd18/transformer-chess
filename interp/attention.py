@@ -563,23 +563,10 @@ def show_multi_square_attention(
     """Plot attention for a set of (square, layer) pairs.
 
     Columns are squares, rows are heads. Non-board tokens are excluded.
-    Each subplot has its own colorbar (each plot has its own scale).
-
-    Args:
-        model: ChessTransformer in eval mode.
-        board: position to analyze; not mutated.
-        square_to_layer: {square_index: layer_index} in the user's frame.
-        direction: "from" (square is query) or "to" (square is key).
-        device: where to run the model.
-        cmap: matplotlib colormap.
-        save_path: if given, save the figure here. Use a .pdf or .svg
-            extension for vector output (sharp at any zoom).
-        dpi: rasterization DPI; only matters for raster formats (.png).
-            Vector formats ignore this for the plot itself but still
-            use it for any embedded raster elements.
-
-    Returns the Figure so the caller can further tweak/save it.
+    Each subplot has its own colorbar.
     """
+    from matplotlib.ticker import FormatStrFormatter
+
     assert direction in ("from", "to")
     for sq, layer in square_to_layer.items():
         assert 0 <= sq < 64, f"bad square {sq}"
@@ -609,12 +596,9 @@ def show_multi_square_attention(
     items = list(square_to_layer.items())
     n_cols = len(items)
 
-    # Publication-friendly defaults. Use a serif font that's commonly
-    # available; falls back gracefully if not installed.
+    # Keep matplotlib's default font (it has the chess glyphs); only
+    # override what matters for paper-quality output.
     with plt.rc_context({
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "DejaVu Serif", "serif"],
-        "mathtext.fontset": "stix",
         "axes.titlesize": 11,
         "axes.labelsize": 11,
         "savefig.bbox": "tight",
@@ -667,6 +651,7 @@ def show_multi_square_attention(
                 )
                 cbar = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.03)
                 cbar.ax.tick_params(labelsize=8, length=2, width=0.6)
+                cbar.ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
                 cbar.outline.set_linewidth(0.6)
 
         plt.tight_layout(rect=(0, 0, 1, 0.97))
