@@ -228,33 +228,10 @@ def show_square_attention(
     plt.tight_layout(rect=(0, 0, 1, 0.97))
     plt.show()
 
-# ---------------------------------------------------------------------------
+
 # Visual constants. Tweak these to taste.
-# ---------------------------------------------------------------------------
-
-# Font used for the chess piece glyphs. DejaVu Sans is bundled with
-# matplotlib and has the filled chess pieces (\u265A-\u265F) on every
-# platform we've tried. If you swap fonts, you may need to re-tune
-# _GLYPH_Y_OFFSET below.
 _CHESS_FONT_FAMILY = "DejaVu Sans"
-
-# Vertical nudge applied to piece glyphs, in units of one square. Chess
-# Unicode glyphs sit on a baseline like letters, so va="center" leaves
-# them visually high in their cell. Empirically ~0.08 lands DejaVu Sans
-# glyphs in the visual center of a cell.
 _GLYPH_Y_OFFSET = -0.05
-
-# Filled chess glyphs, one per piece type. We render both colors with
-# the filled glyphs and distinguish via fill color (white pieces drawn
-# white-with-black-outline, black pieces drawn black-with-white-outline).
-_PIECE_GLYPHS = {
-    chess.KING:   "\u265A",
-    chess.QUEEN:  "\u265B",
-    chess.ROOK:   "\u265C",
-    chess.BISHOP: "\u265D",
-    chess.KNIGHT: "\u265E",
-    chess.PAWN:   "\u265F",
-}
 
 # rcParams applied while drawing. Used inside plt.rc_context so they
 # don't leak into the rest of the notebook.
@@ -513,3 +490,163 @@ def plot_single_head_attention(
 
         plt.close(fig)
         return fig
+    
+def _plot_board_attention(
+    square_attn: np.ndarray,
+    board: chess.Board,
+    focus_square: int,
+    ax: plt.Axes,
+    title: str = "",
+    cmap: str = "viridis",
+    show_pieces: bool = True,
+) -> plt.Axes:
+    """Like plot_attention_map but board-only (no meta sidebar).
+
+    Expects `square_attn` to already be in the user's board frame
+    (i.e. un-mirrored if the board was black-to-move) and length 64.
+    """
+    assert square_attn.shape == (64,), \
+        f"expected (64,), got {square_attn.shape}"
+
+    grid = square_attn.reshape(8, 8)
+    vmax = float(square_attn.max()) if square_attn.max() > 0 else 1.0
+    im = ax.imshow(grid, cmap=cmap, vmin=0.0, vmax=vmax,
+                   extent=(-0.5, 7.5, -0.5, 7.5), origin="lower")
+
+    if show_pieces:
+        for sq in range(64):
+            piece = board.piece_at(sq)
+            if piece is None:
+                continue
+            file = chess.square_file(sq)
+            rank = chess.square_rank(sq)
+            glyph = _PIECE_GLYPHS[piece.piece_type]
+            if piece.color == chess.WHITE:
+                fill_color, stroke_color = "white", "black"
+            else:
+                fill_color, stroke_color = "black", "white"
+            ax.text(
+                file, rank, glyph,
+                ha="center", va="center",
+                fontsize=16, color=fill_color,
+                path_effects=[pe.withStroke(linewidth=2,
+                                            foreground=stroke_color)],
+            )
+
+    f = chess.square_file(focus_square)
+    r = chess.square_rank(focus_square)
+    ax.add_patch(Rectangle((f - 0.5, r - 0.5), 1, 1,
+                           fill=False, edgecolor="red", linewidth=2.0))
+
+    ax.set_xticks(range(8))
+    ax.set_xticklabels(list("abcdefgh"), fontsize=7)
+    ax.set_yticks(range(8))
+    ax.set_yticklabels(range(1, 9), fontsize=7)
+    ax.set_title(title, fontsize=10)
+    ax.set_aspect("equal")
+    return ax
+
+
+def show_multi_square_attention(
+    model,                                # ChessTransformer
+    board: chess.Board,
+    square_to_layer: dict[int, int],
+    direction: str = "from",              # "from" or "to"
+    device: str | torch.device = "cpu",
+    cmap: str = "viridis",
+) -> None:
+    """Plot attention for a set of (square, layer) pairs.
+
+    Each row of the output is one square at its specified layer; each
+    of the 8 columns is one head. Non-board tokens are excluded so the
+    plotted vector is the (64,) board-only slice, renormalized? No --
+    we display it on its own scale without renormalizing, matching the
+    behavior of `plot_attention_map`. If you want renormalization, do
+    it before calling.
+
+    Args:
+        model: a ChessTransformer in eval mode.
+        board: position to analyze; not mutated.
+        square_to_layer: {square_index: layer_index}. Square indices are
+            in the user's board frame (0..63).
+        direction: "from" = row of A (square is the query),
+                   "to"   = column of A (square is the key).
+        device: where to run the model.
+        cmap: matplotlib colormap.
+    """
+    assert direction in ("from", "to")
+    for sq, layer in square_to_layer.items():
+        assert 0 <= sq < 64, f"bad square {sq}"
+        assert 0 <= layer < len(model.blocks), \
+            f"bad layer {layer} for model with {len(model.blocks)} layers"
+
+    model = model.to(device).eval()
+    tokens = torch.from_numpy(tokenize(board)).long().unsqueeze(0).to(device)
+
+    # Run the model once with hooks on every layer we'll need.
+    needed_layers = sorted(set(square_to_layer.values()))
+    attn_modules = [model.blocks[i].attn for i in needed_layers]
+    for m in attn_modules:
+        m._save_attn_probs = True
+    try:
+        with torch.no_grad():
+            model(tokens)
+    finally:
+        for m in attn_modules:
+            m._save_attn_probs = False
+
+    # Cache attention tensors per layer to avoid re-fetching.
+    layer_probs = {
+        i: model.blocks[i].attn.last_attn_probs[0].cpu().numpy()
+        for i in needed_layers
+    }
+
+    n_heads = model.cfg.n_heads
+    items = list(square_to_layer.items())
+    n_rows = len(items)
+
+    fig, axes = plt.subplots(
+        n_rows, n_heads,
+        figsize=(2.6 * n_heads, 2.8 * n_rows),
+        squeeze=False,
+    )
+    fig.suptitle(
+        f"Attention {direction} target squares "
+        f"(turn: {'white' if board.turn else 'black'})",
+        fontsize=12,
+    )
+
+    # Permutation that maps canonical-frame board indices back to the
+    # user's frame for black-to-move positions.
+    unmirror = [sq ^ 56 for sq in range(64)] if board.turn == chess.BLACK \
+               else list(range(64))
+
+    for row, (square, layer_idx) in enumerate(items):
+        canon_sq = square ^ 56 if board.turn == chess.BLACK else square
+        probs = layer_probs[layer_idx]   # (H, 68, 68)
+        sq_name = chess.square_name(square)
+
+        # Row label on the leftmost axis.
+        axes[row, 0].set_ylabel(
+            f"{sq_name}  (L{layer_idx})",
+            fontsize=11, rotation=0, ha="right", va="center", labelpad=30,
+        )
+
+        for head in range(n_heads):
+            if direction == "from":
+                vec = probs[head, canon_sq, :64]   # query=square
+            else:
+                vec = probs[head, :64, canon_sq]   # key=square
+            # Un-mirror to the user's board frame for display.
+            vec = vec[unmirror]
+
+            title = f"H{head}" if row == 0 else ""
+            _plot_board_attention(
+                vec, board, square,
+                ax=axes[row, head],
+                title=title,
+                cmap=cmap,
+            )
+
+    plt.tight_layout(rect=(0, 0, 1, 0.96))
+    plt.show()
