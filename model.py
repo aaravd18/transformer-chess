@@ -147,6 +147,16 @@ class MultiHeadAttention(nn.Module):
         self.last_attn_probs  = None
         self.last_per_head_out = None
 
+        # Patching. When set, _patch_per_head should be a dict:
+        #   {
+        #       "heads": LongTensor of head indices to patch,
+        #       "values": Tensor of shape (n_patched, L, head_dim) -- the
+        #                 replacement output for those heads, broadcast
+        #                 over batch.
+        #   }
+        # When None (default), forward is unchanged.
+        self._patch_per_head = None
+
     def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
         """(B, L, D) -> (B, H, L, head_dim)."""
         B, L, _ = x.shape
@@ -174,6 +184,16 @@ class MultiHeadAttention(nn.Module):
 
         # Weighted values. (B,H,L,L) @ (B,H,L,Dh) -> (B,H,L,Dh)
         per_head_out = torch.matmul(attn_probs, v)
+
+        # Mean-ablation patch 
+        # If a patch is registered, overwrite the targeted heads with the
+        # supplied per-token replacement. Broadcasts over the batch dim.
+        if self._patch_per_head is not None:
+            heads = self._patch_per_head["heads"]
+            values = self._patch_per_head["values"]   # (P, L, Dh)
+            B = per_head_out.shape[0]
+            per_head_out = per_head_out.clone()  # avoid in-place on autograd tensor
+            per_head_out[:, heads] = values.unsqueeze(0).expand(B, -1, -1, -1)
 
         if self._save_per_head:
             self.last_per_head_out = per_head_out.detach()

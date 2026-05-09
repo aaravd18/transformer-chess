@@ -1,14 +1,4 @@
-"""Attention visualization for the chess transformer.
-
-Two public entries:
-    plot_attention_map(attn_row, board, square, ...) -> matplotlib Figure
-        Render a single (68,) attention vector as an 8x8 board heatmap
-        plus a small sidebar for the 4 non-square tokens.
-
-    show_square_attention(model, board, square, ...) -> None
-        Run the model on `board`, extract attention for `square` from
-        every (layer, head), and plot them all.
-"""
+"""Attention visualization for the chess transformer."""
 from __future__ import annotations
 from pathlib import Path
 

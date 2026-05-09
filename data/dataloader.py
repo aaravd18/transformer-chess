@@ -47,6 +47,7 @@ def make_loader(
     batch_size: int,
     num_workers: int = 2,
     pin_memory: bool = True,
+    shuffle: bool = False
 ):
     """Build a DataLoader for one split ("train" or "val").
 
@@ -63,9 +64,9 @@ def make_loader(
     return DataLoader(
         ds,
         batch_size=batch_size,
-        shuffle=is_train,
+        shuffle=is_train or shuffle,
         num_workers=num_workers,
         pin_memory=pin_memory,
-        drop_last=is_train,
+        drop_last=True,
         persistent_workers=num_workers > 0,
     )
