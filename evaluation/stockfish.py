@@ -6,6 +6,31 @@ from evaluation.play import *
 # ---------------------------------------------------------------------------
 # Stockfish move function
 # ---------------------------------------------------------------------------
+def configure_stockfish_strength(
+    engine: chess.engine.SimpleEngine,
+    elo: int,
+) -> None:
+    """Configure Stockfish strength.
+    Stockfish UCI_Elo usually only supports ~1320-3190.
+    For lower target strengths, use Skill Level 0-20 instead.
+    """
+    if elo >= 1320:
+        engine.configure({
+            "UCI_LimitStrength": True,
+            "UCI_Elo": elo,
+        })
+    else:
+        # Rough mapping:
+        # 800  -> Skill 0
+        # 1320 -> Skill ~8
+        # Above that, switch to UCI_Elo.
+        skill = round((elo - 800) / (1320 - 800) * 8)
+        skill = max(0, min(8, skill))
+
+        engine.configure({
+            "UCI_LimitStrength": False,
+            "Skill Level": skill,
+        })
 
 def stockfish_move_fn(
     board: chess.Board,
@@ -13,20 +38,13 @@ def stockfish_move_fn(
     engine: chess.engine.SimpleEngine,
     time_limit: float = 0.1,
 ) -> chess.Move:
-    """Get Stockfish's move at a target Elo.
+    """Get Stockfish's move at a target approximate Elo.
 
-    We pass in a persistent `engine` handle rather than spawning a new
-    process per move — Stockfish startup is slow (~100ms) and we'll be
-    making thousands of move calls.
-
-    Stockfish's UCI_Elo is typically clamped to [1320, 3190]. For weaker
-    play, you'd want `Skill Level` (0-20) instead; if your model is very
-    weak you may need to swap in that approach.
+    For elo >= 1320, uses Stockfish's UCI_Elo mode.
+    For elo < 1320, uses Stockfish Skill Level as an approximate weaker mode.
     """
-    engine.configure({
-        "UCI_LimitStrength": True,
-        "UCI_Elo": elo,
-    })
+    configure_stockfish_strength(engine, elo)
+
     result = engine.play(board, chess.engine.Limit(time=time_limit))
     return result.move
 
