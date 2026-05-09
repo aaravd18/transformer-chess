@@ -1,6 +1,7 @@
 import torch
 from contextlib import contextmanager
 from evaluation.play import show_suggestions, get_legal_move_probs
+from data.tokenizer import tokenize
 import chess
 
 @torch.no_grad()
