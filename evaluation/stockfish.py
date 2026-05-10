@@ -30,7 +30,7 @@ def play_stockfish(
         if board.turn == model_color:
             move = predict_move(model, board, device)
         else:
-            move = engine.play(board, chess.engine.Limit(time=0.1)).move
+            move = engine.play(board, chess.engine.Limit(time=1)).move
 
         moves.append(move)
         board.push(move)
