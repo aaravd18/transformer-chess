@@ -4,52 +4,6 @@ import torch
 from evaluation.play import *
 
 # ---------------------------------------------------------------------------
-# Stockfish move function
-# ---------------------------------------------------------------------------
-def configure_stockfish_strength(
-    engine: chess.engine.SimpleEngine,
-    elo: int,
-) -> None:
-    """Configure Stockfish strength.
-    Stockfish UCI_Elo usually only supports ~1320-3190.
-    For lower target strengths, use Skill Level 0-20 instead.
-    """
-    if elo >= 1320:
-        engine.configure({
-            "UCI_LimitStrength": True,
-            "UCI_Elo": elo,
-        })
-    else:
-        # Rough mapping:
-        # 800  -> Skill 0
-        # 1320 -> Skill ~8
-        # Above that, switch to UCI_Elo.
-        skill = round((elo - 800) / (1320 - 800) * 8)
-        skill = max(0, min(8, skill))
-
-        engine.configure({
-            "UCI_LimitStrength": False,
-            "Skill Level": skill,
-        })
-
-def stockfish_move_fn(
-    board: chess.Board,
-    elo: int,
-    engine: chess.engine.SimpleEngine,
-    time_limit: float = 0.1,
-) -> chess.Move:
-    """Get Stockfish's move at a target approximate Elo.
-
-    For elo >= 1320, uses Stockfish's UCI_Elo mode.
-    For elo < 1320, uses Stockfish Skill Level as an approximate weaker mode.
-    """
-    configure_stockfish_strength(engine, elo)
-
-    result = engine.play(board, chess.engine.Limit(time=time_limit))
-    return result.move
-
-
-# ---------------------------------------------------------------------------
 # Single game
 # ---------------------------------------------------------------------------
 
@@ -62,20 +16,21 @@ def play_stockfish(
     max_plies: int = 400,
 ) -> float:
     """Play one game; return result from model's perspective: 1, 0.5, or 0.
-
-    max_plies guards against pathological non-terminating games — if the
-    model produces low-quality moves that avoid checkmate but neither
-    side captures or pushes pawns, we'd otherwise loop forever (well,
-    until the 75-move rule, but that's still 150 plies of nothing).
+    max_plies guards against non-terminating games 
     """
+
     board = chess.Board()
     ply = 0
+    engine.configure({
+        "UCI_LimitStrength": True,
+        "UCI_Elo": stockfish_elo,
+    })
 
     while not board.is_game_over(claim_draw=True) and ply < max_plies:
         if board.turn == model_color:
             move = predict_move(model, board, device)
         else:
-            move = stockfish_move_fn(board, stockfish_elo, engine)
+            move = engine.play(board, chess.engine.Limit(time=0.1)).move
         board.push(move)
         ply += 1
 
@@ -83,9 +38,6 @@ def play_stockfish(
     outcome = board.outcome(claim_draw=True)
     if outcome is None:
         # Hit max_plies without a natural termination — call it a draw.
-        # This is a pragmatic choice; alternatives would be to score it
-        # as a loss for the model (since it presumably caused the loop)
-        # or to exclude the game entirely.
         return 0.5
     if outcome.winner is None:
         return 0.5
@@ -102,12 +54,8 @@ def run_match(
     engine: chess.engine.SimpleEngine,
     device: torch.device,
 ) -> dict:
-    """Play `num_games` against Stockfish at a fixed Elo, alternating colors.
-
-    Returns aggregate stats. We alternate strictly (W,B,W,B,...) rather
-    than randomizing — with small num_games this gives lower-variance
-    estimates than random color assignment.
-    """
+    """Play `num_games` against Stockfish at a fixed Elo, alternating colors."""
+    
     wins = draws = losses = 0
     total_score = 0.0
 

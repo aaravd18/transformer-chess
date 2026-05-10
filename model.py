@@ -1,12 +1,5 @@
 """Mini chess transformer with a Leela-style policy head.
 
-This is an interpretability-research model. The architecture intentionally
-mirrors the structure of Leela Chess Zero's policy network so that the same
-analyses (activation patching on squares, bilinear probes on the residual
-stream, etc.) translate over. Where Leela uses domain-specific tricks
-(smolgen, post-norm, custom positional encodings) we use the standard
-choices that train stably at small scale.
-
 Key structural facts to keep in mind when interpreting activations:
 
 - Sequence length is 68. Tokens 0..63 are the 64 chessboard squares in
@@ -19,10 +12,7 @@ Key structural facts to keep in mind when interpreting activations:
 
 - Attention is fully bidirectional. Every token attends to every other.
 
-- No value head. The Leela paper's main results (Section 3) are all
-  computed against the policy output, and Appendix C confirms value-head
-  results mirror them because the heads share the transformer body. We
-  keep the [CLS] token in the input anyway as a cheap pooling slot for
+- No value head. We keep the [CLS] token in the input anyway as a cheap pooling slot for
   future position-level probes.
 
 - The policy head computes a 64x64 logit matrix. logit[i, j] is the logit
