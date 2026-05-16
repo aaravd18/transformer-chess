@@ -67,16 +67,14 @@ def iter_puzzle_boards(
     csv_path: str,
     min_rating: int = 1300,
     max_rating: int = 1700,
-    chunksize: int = 10_000,
 ):
     """
     Iterate through Lichess puzzle positions one-by-one,
     yielding python-chess Board objects filtered by rating.
     """
 
-    for chunk in pd.read_csv(csv_path, chunksize=chunksize):
+    for chunk in pd.read_csv(csv_path, chunksize=10000):
 
-        # Filter ratings efficiently at dataframe level first
         chunk = chunk[
             (chunk["Rating"] >= min_rating)
             & (chunk["Rating"] <= max_rating)
@@ -86,13 +84,15 @@ def iter_puzzle_boards(
 
             board = chess.Board(row.FEN)
 
+            moves = row.Moves.split()
+
+            board.push(chess.Move.from_uci(moves[0]))
+
             yield {
                 "board": board,
-                "fen": row.FEN,
-                "rating": row.Rating,
+                "solution_moves": moves[1:],
                 "themes": row.Themes,
-                "moves": row.Moves,
-                "game_url": row.GameUrl,
+                "rating": row.Rating,
             }
 
 
