@@ -13,7 +13,7 @@ import zstandard as zstd
 
 URL = "https://database.lichess.org/standard/lichess_db_standard_rated_2026-01.pgn.zst"
 OUTPUT_PATH = "filtered_games.pgn"
-TARGET_GAMES = 1000 # each game under our constraints has approx 75 positions thus 50000 * 75 = 3.75M positions
+TARGET_GAMES = 50000 # each game under our constraints has approx 75 positions thus 50000 * 75 = 3.75M positions
 MIN_RATING = 1800
 MIN_BASE_SECONDS = 180  # time format for each game is at least 3 mins per person
 

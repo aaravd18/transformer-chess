@@ -1,8 +1,6 @@
-# Chess Transformer — Mechanistic Interpretability
+# Mechanistic Interpretability of a Chess Transformer
 
-A small transformer trained to predict human chess moves, built from the ground up to be taken apart.
-
-The goal is not playing strength. The goal is a model whose internals can be read: attention maps that correspond directly to square-to-square communication, residual streams that localize move information by design, and tooling that makes probing and patching straightforward.
+Training a transformer to play chess, then taking it apart to see how it works.
 
 ---
 
@@ -10,11 +8,11 @@ The goal is not playing strength. The goal is a model whose internals can be rea
 
 **6.5M parameters** — 8 layers, 8 heads, d_model 256, d_ff 1024, pre-norm, bidirectional attention.
 
-Three design choices made deliberately for interpretability:
+Design choices for interpretability:
 
-**Spatial 68-token board representation.** Tokens 0–63 are the 64 board squares in python-chess order (a1=0, …, h8=63). Tokens 64–66 are metadata (castling rights, en passant target, halfmove clock bucket). Token 67 is a `[CLS]` register kept as a pooling slot for position-level probes. Each square gets its own token so attention maps read directly as square-to-square attention weights — no decoding required.
+**68-token board representation.** Tokens 0–63 are the 64 board squares in python-chess order (a1=0, …, h8=63). Tokens 64–66 are metadata (castling rights, en passant target, halfmove clock bucket). Token 67 is a `[CLS]` register kept as a pooling slot for position-level probes (currently not supervised in training though). Each square gets its own token so attention maps read directly as square-to-square attention weights 
 
-**Color canonicalization.** Every position the model sees is "white to move." Black-to-move positions are rank-mirrored and piece colors swapped before tokenization. The move target and value label are mirrored in lockstep. The model never sees a side identity; concepts learned are side-invariant.
+**Color canonicalization.** Every position is canonicalized to "white to move." in order to halve the state space. Black-to-move positions and move targets are mirrored. 
 
 **Bilinear policy head.** Move logits are computed as:
 
@@ -26,47 +24,34 @@ logit[i, j] = <S[i], T[j]>
 
 `logit[i, j]` depends *only* on the final residual-stream activations at squares `i` and `j`. If the model has learned to represent a future move, information about it has nowhere to live except the source or target square's residual stream. A small promotion head is layered on top for pawn promotions.
 
-The attention module keeps Q/K/V/O as separate `nn.Linear` layers (not fused), stores attention probabilities on request via a flag, and supports mean-ablation patching at the per-head level. All of these are off by default so training has zero overhead.
+The attention module keeps Q/K/V/O as separate `nn.Linear` layers (not fused), stores attention probabilities on request via a flag, and supports activation patching at the per-head level.
 
 ---
 
 ## Dataset
 
-Lichess games filtered to both players ≥ 1800 Elo and ≥ 3-minute time control. The download script streams and filters the Lichess database in one pass; the current committed dataset has **1,000 games / ~73k positions** (see `datasets/meta.json`). Rerun `data/download_data.py` with a higher `TARGET_GAMES` to scale up.
-
-Train/val split is at the game level (not position level) to prevent positions from the same game leaking across splits.
+Lichess games filtered to both players ≥ 1800 Elo and ≥ 3-minute time control. My dataset used 50,000 games = 3.75M unique positions (3.5M train 0.25M validation). To recreate, run `data/download_data.py` and adjust the parameters accordingly.
 
 ---
 
 ## Repo structure
 
 ```
-model.py                  Model definition: ChessEmbedding, TransformerBlock,
-                          PolicyHead, ChessTransformer, policy_loss, load_model
+model.py                  Model definition and policy loss.
 
-data/
-  tokenizer.py            tokenize(board) and iter_positions(game) — the
-                          canonical-frame conversion lives here
-  preprocess.py           Two-pass PGN → memmap .npy pipeline (binarize_pgn)
-  download_data.py        Stream-filter Lichess PGN by Elo + time control
-  dataloader.py           make_loader() for training
+data/                     Data pipeline: Lichess PGN download/filtering, 
+                          tokenizer functions + tokenizing dataset,
+                          training dataloader.
 
-train.ipynb               Training loop, checkpointing, W&B logging
+train.ipynb               Training loop, checkpointing, W&B logging.
 
-interp/
-  attention.py            Attention visualization: show_square_attention,
-                          plot_single_head_attention, show_multi_square_attention
-  ablation.py             Mean-ablation patching: compute_layer_mean_per_head,
-                          patched_heads context manager, prob_of_move_under_ablation
+interp/                   Interpretability helpers: attention visualization, activation patching, etc.
 
-evaluation/
-  play.py                 get_legal_move_probs, suggest_moves, play_game (interactive)
-  evals.py                Full eval suite
-  evaluate.py             Entry point: load checkpoint + run evals
-  stockfish.py            Stockfish agreement metrics
+evaluation/               Eval suite: legal-move probabilities, interactive
+                          play, game simulation vs stockfish
 
-checkpoints/              Saved .pt files (not tracked by git if large)
-datasets/                 Preprocessed .npy arrays + meta.json
+datasets/                 Preprocessed .npy arrays + meta.json. Committed repo contains a small 1000 game dataset
+                          for quick testing
 ```
 
 ---
@@ -79,40 +64,128 @@ datasets/                 Preprocessed .npy arrays + meta.json
 pip install -r requirements.txt
 ```
 
-1. Optionally re-download data: `python data/download_data.py` (writes `filtered_games.pgn`)
-2. Optionally re-preprocess: `python data/preprocess.py` (writes `datasets/`)
-3. Open and run `train.ipynb` — produces a checkpoint in `checkpoints/`
+1. Download data: `python data/download_data.py` (writes `filtered_games.pgn`)
+2. Preprocess: `python data/preprocess.py` (writes `datasets/`)
+3. Open and run `train.ipynb` - adjust path to wherever you want to save your model (I saved on google drive)
 
-The prebuilt dataset is already committed; skip steps 1–2 unless you want more data.
+
 
 ### Interpretability work
 
 The intended workflow for exploratory analysis is a clean Colab notebook that imports this repo as a library:
 
+## Exploratory Analysis Workflow
+
+The intended workflow for exploratory analysis is a clean Colab notebook that imports this repo as a library.
+
 ```python
-# In a fresh Colab notebook:
+# in a fresh Colab notebook:
 !git clone <repo-url>
 %cd transformer-chess
+!pip install -r requirements.txt
 
 from model import load_model
-from interp.attention import show_square_attention, plot_single_head_attention
-from interp.ablation import compute_layer_mean_per_head, patched_heads, prob_of_move_under_ablation
-from evaluation.play import suggest_moves, get_legal_move_probs
-import chess, torch
+import interp.attention as attn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = load_model("checkpoints/5M-longer-run.pt", device)
+model = load_model("MODEL_PATH", device)
 ```
-
-**Attention maps** — `show_square_attention` runs a forward pass with attention hooks enabled and plots all heads across all layers for a given square. `plot_single_head_attention` produces a single polished figure suitable for publication. Both handle the canonical-frame remapping transparently: pass a normal `chess.Board` (either color to move) and the display maps back to the original orientation.
-
-**Activation patching** — `compute_layer_mean_per_head` computes the mean per-head output over a calibration set. `patched_heads` is a context manager that replaces specified heads with their means for the duration of a forward pass. `prob_of_move_under_ablation` measures how a target move's probability changes under a given ablation spec.
-
-**Move predictions** — `suggest_moves(model, board, device, k=5)` returns top-k legal moves with probabilities. `play_game` is an interactive REPL with an SVG board that runs in Jupyter.
-
-The repo is intentionally kept as a library. Exploratory interpretability work should happen in notebooks, not by editing files here.
 
 ---
 
-## Notes 
-- There is no value head. The `[CLS]` token is kept in the sequence as a pooling slot for future position-level probes but is not currently supervised.
+## Example Usage
+
+### Visualize attention from a square
+
+```python
+import chess
+
+board = chess.Board()
+
+moves = ["e4", "e5", "Nf3", "Nc6", "Bb5", "Nf6", "O-O", "d6"]
+for move in moves:
+    board.push_san(move)
+
+attn.show_square_attention(
+    model,
+    board,
+    chess.F3,
+    direction="from",
+)
+```
+
+### Plot a single attention head
+
+```python
+attn.plot_single_head_attention(
+    model,
+    board,
+    chess.B5,
+    layer=0,
+    head=0,
+    direction="from",
+)
+```
+
+### Compare attention across multiple pieces
+
+```python
+attn.show_multi_square_attention(
+    model,
+    board,
+    square_to_layer={
+        chess.B5: 0,
+        chess.F6: 0,
+        chess.E5: 0,
+        chess.F3: 0,
+    },
+    direction="from",
+)
+```
+
+### Show model move suggestions
+
+```python
+from evaluation.play import show_suggestions
+
+board = chess.Board()
+
+moves = ["e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "Ng5", "d6"]
+for move in moves:
+    board.push_san(move)
+
+show_suggestions(model, board, device, k=5)
+```
+
+### Play against the model
+
+```python
+from evaluation.play import play_game
+
+play_game(
+    model,
+    device,
+    human_color=chess.WHITE,
+    temperature=1e-5,
+)
+```
+
+### Run Stockfish evaluation matches
+
+```python
+import chess.engine
+import evaluation.stockfish as sfe
+
+engine = chess.engine.SimpleEngine.popen_uci("STOCKFISH_PATH")
+
+results = sfe.run_match(
+    model=model,
+    stockfish_elo=1400,
+    num_games=25,
+    engine=engine,
+    device=device,
+    pgn_path="matches.pgn",
+)
+```
+
+---
