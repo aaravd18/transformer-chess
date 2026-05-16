@@ -5,3 +5,4 @@ requests
 zstandard
 wandb
 matplotlib
+pandas
