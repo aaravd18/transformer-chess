@@ -1,6 +1,7 @@
 import requests
 import zstandard as zstd
 import pandas as pd
+import chess
 
 
 def download_interesting_lichess_puzzles(
@@ -61,6 +62,38 @@ def download_interesting_lichess_puzzles(
     print(f"\nSaved {len(df)} rows to {output_file}")
 
     return df
+
+def iter_puzzle_boards(
+    csv_path: str,
+    min_rating: int = 1300,
+    max_rating: int = 1700,
+    chunksize: int = 10_000,
+):
+    """
+    Iterate through Lichess puzzle positions one-by-one,
+    yielding python-chess Board objects filtered by rating.
+    """
+
+    for chunk in pd.read_csv(csv_path, chunksize=chunksize):
+
+        # Filter ratings efficiently at dataframe level first
+        chunk = chunk[
+            (chunk["Rating"] >= min_rating)
+            & (chunk["Rating"] <= max_rating)
+        ]
+
+        for row in chunk.itertuples(index=False):
+
+            board = chess.Board(row.FEN)
+
+            yield {
+                "board": board,
+                "fen": row.FEN,
+                "rating": row.Rating,
+                "themes": row.Themes,
+                "moves": row.Moves,
+                "game_url": row.GameUrl,
+            }
 
 
 if __name__ == "__main__":
