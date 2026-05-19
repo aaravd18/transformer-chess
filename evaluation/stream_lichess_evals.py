@@ -29,7 +29,7 @@ import zstandard as zstd
 URL = "https://database.lichess.org/lichess_db_eval.jsonl.zst"
 OUTFILE = "evaluation/positions/evals.csv"
 
-TARGET_ROWS = 50_000
+TARGET_ROWS = 100_000
 MIN_DEPTH = 25
 MIN_GAP_CP = 100
 CHUNK_SIZE = 1024 * 1024  # 1MB decompressed chunks
@@ -44,13 +44,21 @@ PIECE_NAMES = {
     chess.KING: "king",
 }
 
-def get_capture_range(move: chess.Move, moving_piece: str, is_capture: bool):
+def get_capture_info(move: chess.Move, moving_piece: str, is_capture: bool):
     """
-    For bishop, rook, and queen captures, return the number of squares moved.
-    For all other moves, return None.
+    For bishop, rook, and queen captures, return:
+    - capture_range
+    - capture_direction
+
+    capture_direction is one of:
+    - diagonal
+    - vertical
+    - horizontal
+
+    Returns (None, None) for unsupported moves.
     """
     if not is_capture or moving_piece not in {"bishop", "rook", "queen"}:
-        return None
+        return None, None
 
     from_file = chess.square_file(move.from_square)
     from_rank = chess.square_rank(move.from_square)
@@ -60,7 +68,18 @@ def get_capture_range(move: chess.Move, moving_piece: str, is_capture: bool):
     file_dist = abs(to_file - from_file)
     rank_dist = abs(to_rank - from_rank)
 
-    return max(file_dist, rank_dist)
+    capture_range = max(file_dist, rank_dist)
+
+    if file_dist == rank_dist:
+        capture_direction = "diagonal"
+    elif file_dist == 0:
+        capture_direction = "vertical"
+    elif rank_dist == 0:
+        capture_direction = "horizontal"
+    else:
+        capture_direction = None
+
+    return capture_range, capture_direction
 
 
 def first_move(pv_line: str):
@@ -120,7 +139,11 @@ def label_best_move(fen: str, best_move_uci: str):
     best_move_san = board.san(move)
     is_capture = board.is_capture(move)
     is_check = board.gives_check(move)
-    capture_range = get_capture_range(move, moving_piece, is_capture)
+    capture_range, capture_direction = get_capture_info(
+        move,
+        moving_piece,
+        is_capture
+    )
 
     return {
         "best_move_san": best_move_san,
@@ -128,6 +151,7 @@ def label_best_move(fen: str, best_move_uci: str):
         "is_capture": is_capture,
         "is_check": is_check,
         "capture_range": capture_range,
+        "capture_direction": capture_direction,
     }
 
 
@@ -177,6 +201,7 @@ def process_row(row):
         "is_capture": move_labels["is_capture"],
         "is_check": move_labels["is_check"],
         "capture_range": move_labels["capture_range"],
+        "capture_direction": move_labels["capture_direction"],
     }
 
 
@@ -207,6 +232,7 @@ def main():
                     "is_capture",
                     "is_check",
                     "capture_range",
+                    "capture_direction"
                 ]
             )
             writer.writeheader()
