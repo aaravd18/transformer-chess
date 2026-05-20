@@ -595,6 +595,7 @@ def show_multi_square_attention(
         "savefig.pad_inches": 0.05,
         "pdf.fonttype": 42,         # embed TrueType (editable in Illustrator)
         "ps.fonttype": 42,
+        "savefig.transparent": True,
     }):
         fig, axes = plt.subplots(
             n_heads, n_cols,
@@ -647,6 +648,16 @@ def show_multi_square_attention(
         plt.tight_layout(rect=(0, 0, 1, 0.97))
 
         if save_path is not None:
-            fig.savefig(save_path, dpi=dpi)
+            save_path = Path(save_path).with_suffix(".svg")
+            fig.patch.set_alpha(0)
+            for ax in fig.axes:
+                ax.set_facecolor("none")
+            fig.savefig(
+                save_path,
+                format="svg",
+                transparent=True,
+                bbox_inches="tight",
+                pad_inches=0.05,
+            )
 
     plt.show()
