@@ -2,6 +2,8 @@
 
 Training a transformer to play chess, then taking it apart to see how it works.
 
+**Write-up:** [Part I — Training & Representations](https://aaravd18.github.io/posts/transformer-chess/) · [Part II — Mechanistic Interpretability](https://aaravd18.github.io/posts/transformer-chess-2/)
+
 ---
 
 ## Architecture
